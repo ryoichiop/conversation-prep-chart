@@ -185,20 +185,9 @@ const CSS = `
   }
 `;
 
-/* ── API key helpers ──────────────────────────────────────────────── */
-const API_KEY_STORAGE = "conversant_anthropic_key";
-const getStoredKey = () => localStorage.getItem(API_KEY_STORAGE) || "";
-const storeKey = (k) => localStorage.setItem(API_KEY_STORAGE, k);
-const clearKey = () => localStorage.removeItem(API_KEY_STORAGE);
-
-function anthropicHeaders(apiKey) {
-  return {
-    "Content-Type": "application/json",
-    "x-api-key": apiKey,
-    "anthropic-version": "2023-06-01",
-    "anthropic-dangerous-direct-browser-access": "true",
-  };
-}
+/* ── API proxy ────────────────────────────────────────────────────── */
+const API_URL = "https://conversation-prep-api.conversant-ai.workers.dev/v1/messages";
+const apiHeaders = { "Content-Type": "application/json" };
 
 /* ── App ──────────────────────────────────────────────────────────── */
 const emptyState = () => ({
@@ -211,7 +200,6 @@ export default function App() {
   const [s, setS]   = useState(emptyState());
   const [step, setStep] = useState(0);
   const [key, setKey]   = useState(0);
-  const [apiKey, setApiKey] = useState(getStoredKey);
 
   const upS  = fn => setS(p => fn(p));
   const upMy = (k,v) => upS(p=>({...p,my:{...p.my,[k]:v}}));
@@ -258,7 +246,7 @@ export default function App() {
 
         <div style={{ flex:1, display:"flex", flexDirection:"column", justifyContent:"center", padding: info.type==="results" ? "32px 32px 56px" : "48px 32px 40px", maxWidth:660, margin:"0 auto", width:"100%" }}>
 
-          {info.type==="setup" && <Setup s={s} upS={upS} apiKey={apiKey} setApiKey={k=>{setApiKey(k);storeKey(k);}} clearKey={()=>{setApiKey("");clearKey();}} next={()=>nav(1)} />}
+          {info.type==="setup" && <Setup s={s} upS={upS} next={()=>nav(1)} />}
 
           {info.type==="my-purpose" && (
             <SelectStep supra="In this interaction" stem="I am trying to..."
@@ -316,7 +304,7 @@ export default function App() {
           )}
 
           {info.type==="results" && (
-            <Results s={s} apiKey={apiKey} reset={()=>{ setS(emptyState()); navTo(0); }} />
+            <Results s={s} reset={()=>{ setS(emptyState()); navTo(0); }} />
           )}
         </div>
       </div>
@@ -336,8 +324,7 @@ function DotNav({step,total}) {
 }
 
 /* ── Setup ────────────────────────────────────────────────────────── */
-function Setup({s,upS,apiKey,setApiKey,clearKey,next}) {
-  const [showKey, setShowKey] = useState(false);
+function Setup({s,upS,next}) {
   return (
     <div>
       <div style={{marginBottom:44}}>
@@ -365,50 +352,6 @@ function Setup({s,upS,apiKey,setApiKey,clearKey,next}) {
           <button onClick={()=>upS(p=>({...p,counterparts:[...p.counterparts,emptyCP("")]}))} style={{background:"none",border:`1px dashed ${G.border}`,borderRadius:100,padding:"8px 18px",cursor:"pointer",fontSize:12.5,color:G.textMuted,fontFamily:"'Outfit',sans-serif",marginTop:4,transition:"all .18s"}}>
             + add person
           </button>
-        </div>
-
-        {/* API key */}
-        <div style={{marginTop:16,padding:"18px 20px",borderRadius:14,background:G.surface2,border:`1px solid ${G.border}`}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:apiKey?"0":"10"}}>
-            <div style={{fontSize:11,letterSpacing:".1em",textTransform:"uppercase",color:G.textMuted,fontWeight:500}}>
-              AI features
-            </div>
-            {apiKey && (
-              <button onClick={()=>setShowKey(!showKey)} style={{background:"none",border:"none",cursor:"pointer",fontSize:11,color:G.teal,fontFamily:"'Outfit',sans-serif"}}>
-                {showKey?"hide":"change key"}
-              </button>
-            )}
-          </div>
-          {apiKey && !showKey ? (
-            <div style={{display:"flex",alignItems:"center",gap:8,marginTop:8}}>
-              <div style={{width:8,height:8,borderRadius:"50%",background:"#2E7D2E"}} />
-              <span style={{fontSize:12.5,color:G.textSub}}>API key saved — AI insights will appear in results</span>
-            </div>
-          ) : (
-            <>
-              <div style={{fontSize:12,color:G.textSub,lineHeight:1.6,marginBottom:10}}>
-                Paste your Anthropic API key to enable AI-generated insights on the results page. Your key is stored only in this browser.
-              </div>
-              <div style={{display:"flex",gap:8}}>
-                <input
-                  className="field"
-                  type="password"
-                  placeholder="sk-ant-..."
-                  value={apiKey}
-                  onChange={e=>setApiKey(e.target.value)}
-                  style={{padding:"10px 14px",fontSize:13}}
-                />
-                {apiKey && (
-                  <button onClick={()=>{clearKey();}} style={{background:"none",border:`1px solid ${G.border}`,borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:11,color:G.textMuted,fontFamily:"'Outfit',sans-serif",whiteSpace:"nowrap"}}>
-                    Clear
-                  </button>
-                )}
-              </div>
-              <div style={{fontSize:10.5,color:G.textMuted,marginTop:8,lineHeight:1.5}}>
-                Without a key, the chart still works — AI sections will be skipped.
-              </div>
-            </>
-          )}
         </div>
       </div>
       <div style={{marginTop:40}}>
@@ -452,7 +395,7 @@ function SelectStep({supra,stem,note,items,sel,toggle,faded,dk,onDK,dkLabel,canN
 }
 
 /* ── Results ──────────────────────────────────────────────────────── */
-function Results({s,apiKey,reset}) {
+function Results({s,reset}) {
   const [aiText,       setAiText]       = useState(null);
   const [aiLoading,    setAiLoading]    = useState(false);
   const [curiosityByCP,setCuriosityByCP]= useState([]);
@@ -530,7 +473,6 @@ Unknown items: ${[
 
   /* ─ Authentic purpose ─ */
   const callAI = async () => {
-    if (!apiKey) return;
     setAiLoading(true);
     try {
       const prompt = intersections.length>0
@@ -548,7 +490,7 @@ ${[`${meName}: purposes: ${s.my.purpose.join("; ")||"not specified"}; concerns: 
   ].join("\n")}
 Given what each person is carrying, write ONE paragraph (2-3 sentences, max 60 words) naming the conversation only these people can have together , the one that would be lost if they don't have it. Not what they agree on, but what makes their being in the room together necessary. Direct, honest, human. No preamble, no label. Just the paragraph.`;
 
-      const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:anthropicHeaders(apiKey),body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:600,messages:[{role:"user",content:prompt}]})});
+      const res = await fetch(API_URL,{method:"POST",headers:apiHeaders,body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:600,messages:[{role:"user",content:prompt}]})});
       const d = await res.json();
       const t = d.content?.find(b=>b.type==="text")?.text;
       if (t) setAiText(t.trim());
@@ -558,12 +500,11 @@ Given what each person is carrying, write ONE paragraph (2-3 sentences, max 60 w
 
   /* ─ Curiosity questions ─ */
   const curateCuriosityQuestions = async (candidates) => {
-    if (!apiKey) { setCuriosityByCP(candidates.map(({nm,qs})=>({nm,qs:qs.slice(0,3)}))); return; }
     setCuriosityLoading(true);
     try {
       const results = await Promise.all(candidates.map(async ({nm,qs,cp})=>{
         if (qs.length<=2) return {nm,qs};
-        const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:anthropicHeaders(apiKey),body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:400,messages:[{role:"user",content:`You are helping someone prepare a work conversation using the Conversant Conversation Prep Chart framework.
+        const res = await fetch(API_URL,{method:"POST",headers:apiHeaders,body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:400,messages:[{role:"user",content:`You are helping someone prepare a work conversation using the Conversant Conversation Prep Chart framework.
 ${contextBlock()}
 Candidate questions to ask ${nm}:
 ${qs.map((q,i)=>`${i+1}. ${q}`).join("\n")}
@@ -582,10 +523,9 @@ Select the 2 or 3 questions that would most open up the conversation and reduce 
 
   /* ─ Opening questions ─ */
   const callOpeningAI = async () => {
-    if (!apiKey) return;
     setOpeningLoading(true);
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:anthropicHeaders(apiKey),body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:600,messages:[{role:"user",content:`You are helping someone prepare for an important work conversation using the Conversant framework.
+      const res = await fetch(API_URL,{method:"POST",headers:apiHeaders,body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:600,messages:[{role:"user",content:`You are helping someone prepare for an important work conversation using the Conversant framework.
 
 ${contextBlock()}
 
@@ -669,7 +609,7 @@ Rules:
       />
 
       {/* Authentic purpose (AI) */}
-      {apiKey && (
+      {(
         <div style={{marginTop:24,marginBottom:28}}>
           <div style={{borderRadius:16,padding:"26px 28px",background:"#F0FDFB",border:`1px solid rgba(0,164,154,0.22)`}}>
             <div style={{fontSize:10,letterSpacing:".14em",textTransform:"uppercase",color:G.teal,fontWeight:600,marginBottom:14}}>
@@ -713,7 +653,7 @@ Rules:
       )}
 
       {/* Opening questions (AI) */}
-      {apiKey && (openingLoading||openingQs.length>0) && (
+      {(openingLoading||openingQs.length>0) && (
         <div style={{background:"#F6FBF9",border:`1.5px solid rgba(0,164,154,0.18)`,borderRadius:18,padding:"28px 28px 24px",marginTop:8}}>
           <div style={{marginBottom:18}}>
             <div style={{fontSize:10,letterSpacing:".14em",textTransform:"uppercase",color:G.teal,fontWeight:700,marginBottom:6}}>To open the conversation</div>
